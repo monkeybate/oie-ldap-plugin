@@ -9,9 +9,21 @@ no acceptable user can be located in the LDAP service.
 ## Configuration
 
 Configuration is done using a simple Java properties file, `ldap.properties`,
-which you place on your server alongside your `mirth.properties` file. A sample
-file is included in this directory, and it contains comments describing each
-configuration settings.
+which you place on your server alongside your `mirth.properties` file (the
+engine's `conf/` directory). A sample file is included in this directory, and it
+contains comments describing each configuration setting. The plug-in logs the
+file it loaded at start-up; changes take effect when the engine restarts.
+
+If `ldap.url` or `ldap.group-filter` is missing, LDAP is skipped and everyone
+signs in with their local engine password, so a missing or broken file can't
+lock out the local administrator. The start-up log says so. Users listed in
+`ldap.non-ldap-usernames` always use their local password.
+
+Users who sign in with LDAP get an engine user created for them the first time
+(unless `ldap.auto-create-users=false`), without the Administrator's first-login
+dialog. A failed sign-in shows the same message whatever the reason (wrong
+password, not in the required group, no engine user); the reason is in the
+engine's log.
 
 ## Installation
 

@@ -1,5 +1,7 @@
 package org.openintegrationengine.engine.plugins.auth.ldap;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -44,6 +46,7 @@ public class LDAPAuthenticatorPlugin
     private static final int MAX_RETRIES = 100;
     private static final long DEFAULT_RETRY_INTERVAL = 1000;
     private static final long MAX_RETRY_INTERVAL = 10000;
+    private static final String PROPERTIES_FILENAME = "ldap.properties";
 
     private final Logger logger = LoggerFactory.getLogger(LDAPAuthenticatorPlugin.class);
 
@@ -79,31 +82,73 @@ public class LDAPAuthenticatorPlugin
         return null;
     }
 
+    /**
+     * Loads the settings. Later sources override earlier ones:
+     * <ol>
+     *   <li>the engine's database (the <code>props</code> passed in),</li>
+     *   <li><code>ldap.properties</code> on the plug-in's classpath,</li>
+     *   <li><code>ldap.properties</code> in the engine's configuration
+     *       directory (<code>conf/</code>, next to <code>mirth.properties</code>).</li>
+     * </ol>
+     */
     @Override
     public void init(Properties props) {
-        Properties localProperties = new Properties(props);
-        // Load the configuration from ldap.properties and return it.
-        try (InputStream in = getClass().getClassLoader().getResourceAsStream("ldap.properties")) {
-            if(null == in) {
-                if(logger.isDebugEnabled()) {
-                    logger.debug("No local ldap.properties found; using database configuration with " + props.size() + " items");
-                }
-            } else {
-                if(logger.isTraceEnabled()) {
-                    logger.trace("Found local ldap.properties file; merging with database configuration");
-                }
+        Properties localProperties = new Properties();
+        if(null != props) {
+            localProperties.putAll(props);
+        }
 
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream(PROPERTIES_FILENAME)) {
+            if(null != in) {
                 localProperties.load(in);
-
-                if(logger.isTraceEnabled()) {
-                    logger.trace("Loaded " + localProperties.size() + " items from local ldap.properties; merged with " + props.size() + " items from database");
-                }
+                logger.info("Loaded LDAP settings from " + PROPERTIES_FILENAME + " on the classpath");
             }
         } catch (IOException ioe) {
-            logger.error("Failed to read LDAP configuration from ldap.properties", ioe);
+            logger.error("Failed to read LDAP settings from " + PROPERTIES_FILENAME + " on the classpath", ioe);
+        }
+
+        // The engine's conf/ directory is not on the plug-in's classpath, so read it directly.
+        File confFile = getConfigurationFile();
+        if(null != confFile && confFile.isFile()) {
+            try (InputStream in = new FileInputStream(confFile)) {
+                localProperties.load(in);
+                logger.info("Loaded LDAP settings from " + confFile);
+            } catch (IOException ioe) {
+                logger.error("Failed to read LDAP settings from " + confFile, ioe);
+            }
         }
 
         configure(localProperties);
+
+        if(!isConfigured()) {
+            logger.error("LDAP authentication is not configured: " + Constants.LDAP_URL + " and "
+                    + Constants.LDAP_GROUP_FILTER + " must both be set (looked for "
+                    + (null == confFile ? PROPERTIES_FILENAME : confFile.toString())
+                    + "). Until then, every user signs in with their local engine password.");
+        }
+    }
+
+    /**
+     * @return <code>ldap.properties</code> in the engine's configuration directory,
+     *         or <code>null</code> if the engine can't say where that is.
+     */
+    private File getConfigurationFile() {
+        try {
+            String confDir = ControllerFactory.getFactory().createConfigurationController().getConfigurationDir();
+
+            return null == confDir ? null : new File(confDir, PROPERTIES_FILENAME);
+        } catch (Exception e) {
+            logger.warn("Could not determine the engine's configuration directory", e);
+
+            return null;
+        }
+    }
+
+    /**
+     * @return <code>true</code> if enough settings are present to try LDAP at all.
+     */
+    public boolean isConfigured() {
+        return null != getURL() && null != getGroupFilterTemplate();
     }
 
     private void configure(Properties props) {
@@ -424,6 +469,16 @@ public class LDAPAuthenticatorPlugin
             return null;
         }
 
+        if(!isConfigured()) {
+            // Without settings LDAP can't succeed, so refusing everyone would lock out
+            // every account, including the local administrator's. Let the engine check
+            // the local password instead: users created by this plug-in have none, so
+            // only accounts with a local password can get in.
+            logger.error("LDAP authentication is not configured; checking the local password for '" + username + "'");
+
+            return null;
+        }
+
         int tries = getRetries();
         long retryInterval = getRetryInterval();
 
@@ -467,10 +522,11 @@ public class LDAPAuthenticatorPlugin
                     }
                     if (lastLogin == null) {
                         // This is the user's first time logging in
-                        uc.setUserPreference(user.getId(), "firstlogin", "false");
                         if(logger.isDebugEnabled()) {
                             logger.debug("User '" + username + "' is logging in for the first time.");
                         }
+                        // Their password was right, so a failure here must not refuse them.
+                        skipFirstLoginDialog(uc, user.getId(), username);
                     }
                 }
 
@@ -479,33 +535,20 @@ public class LDAPAuthenticatorPlugin
                         logger.warn("User '" + username + "' authenticated against LDAP but has no engine account; "
                                 + "not creating it because " + Constants.LDAP_AUTO_CREATE_USERS + "=false");
 
-                        return new LoginStatus(LoginStatus.Status.FAIL, "User has not been added to the engine");
+                        // Same answer as a wrong password: the reason is in the log only,
+                        // so the sign-in screen doesn't confirm that the password was right.
+                        return new LoginStatus(LoginStatus.Status.FAIL, null);
                     }
 
                     if(logger.isDebugEnabled()) {
                         logger.debug("Must create new local user for '" + username + "'");
                     }
 
-                    System.out.println(" ----- Must create new local user for '" + username + "'");
-
                     ldapUser.setUsername(username); // Use unmapped username
                     uc.updateUser(ldapUser);
 
                     // Skip the Administrator's First Login dialog for new users
-                    try {
-                        User created = uc.getUser(null, username);
-                        if(null != created) {
-                            uc.setUserPreference(created.getId(), "firstlogin", "false");
-
-                            System.out.println(" ----- firstlogin for user '" + username + "' set to fasle");
-
-                        }
-                    } catch (Exception e) {
-
-                        System.out.println(" ----- Could not set 'firstlogin' preference for '" + username + "'");
-
-                        logger.warn("Could not set 'firstlogin' preference for '" + username + "'", e);
-                    }
+                    skipFirstLoginDialog(uc, null, username);
                 }
 
                 return new LoginStatus(LoginStatus.Status.SUCCESS, null);
@@ -520,7 +563,9 @@ public class LDAPAuthenticatorPlugin
                     logger.error("Failed to authenticate user '" + mappedUsername
                             + "' using server " + getURL(), ne);
 
-                    return new LoginStatus(LoginStatus.Status.FAIL, ne.getMessage());
+                    // The reason ("Invalid Credentials", "not in any required group", ...)
+                    // is in the log above; the sign-in screen gets the same answer for all.
+                    return new LoginStatus(LoginStatus.Status.FAIL, null);
                 }
             } catch (Exception e) {
                 logger.error("Error during LDAP authentication attempt; re-trying", e);
@@ -539,6 +584,28 @@ public class LDAPAuthenticatorPlugin
             return null;
         } else {
             return new LoginStatus(LoginStatus.Status.FAIL, null);
+        }
+    }
+
+    /**
+     * Turns off the Administrator's "first login" dialog for a user. Failures are
+     * logged and ignored: by now the user's password has been accepted.
+     *
+     * @param userId The user's id, or <code>null</code> to look it up by username.
+     */
+    private void skipFirstLoginDialog(UserController uc, Integer userId, String username) {
+        try {
+            if(null == userId) {
+                User user = uc.getUser(null, username);
+                if(null == user) {
+                    logger.warn("Could not find new user '" + username + "' to set its 'firstlogin' preference");
+                    return;
+                }
+                userId = user.getId();
+            }
+            uc.setUserPreference(userId, "firstlogin", "false");
+        } catch (Exception e) {
+            logger.warn("Could not set 'firstlogin' preference for '" + username + "'", e);
         }
     }
 

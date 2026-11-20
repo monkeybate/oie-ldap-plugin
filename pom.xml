@@ -20,21 +20,21 @@
     <dependency>
       <groupId>com.mirth</groupId>
       <artifactId>server</artifactId>
-      <version>4.5.2</version>
+      <version>4.7.0</version>
       <scope>system</scope>
       <systemPath>${project.basedir}/libs/mirth-server.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>com.mirth</groupId>
       <artifactId>client-core</artifactId>
-      <version>4.5.2</version>
+      <version>4.7.0</version>
       <scope>system</scope>
       <systemPath>${project.basedir}/libs/mirth-client-core.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>com.mirth</groupId>
       <artifactId>client</artifactId>
-      <version>4.5.2</version>
+      <version>4.7.0</version>
       <scope>system</scope>
       <systemPath>${project.basedir}/libs/mirth-client.jar</systemPath>
     </dependency>
@@ -50,12 +50,6 @@
       <artifactId>junit</artifactId>
       <version>4.13.2</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.owasp</groupId>
-      <artifactId>dependency-check-maven</artifactId>
-      <version>12.1.8</version>
-      <type>maven-plugin</type>
     </dependency>
   </dependencies>
 
