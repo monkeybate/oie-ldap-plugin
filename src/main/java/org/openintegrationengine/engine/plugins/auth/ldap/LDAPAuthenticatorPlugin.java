@@ -3,6 +3,7 @@ package org.openintegrationengine.engine.plugins.auth.ldap;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -54,6 +55,7 @@ public class LDAPAuthenticatorPlugin
     private int _retries;
     private long _retryInterval;
     private boolean _fallbackToLocalAuthentication = false;
+    private boolean _autoCreateUsers = true;
     private Map<String,String> _usernameMap;
     private Map<String,String> _usernameReverseMap;
     private String _usernameTemplate;
@@ -138,6 +140,7 @@ public class LDAPAuthenticatorPlugin
         setRetries(tries);
         setRetryInterval(retryInterval);
         setFallbackToLocalAuthentication(isBooleanTrue(props.getProperty(Constants.LDAP_FALLBACK_TO_LOCAL)));
+        setAutoCreateUsers(isBooleanTrue(props.getProperty(Constants.LDAP_AUTO_CREATE_USERS, "true")));
         setUsernameMap(props.getProperty(Constants.LDAP_USERNAME_MAP, null));
         setUsernameTemplate(props.getProperty(Constants.LDAP_USERNAME_TEMPLATE, null));
         setNonLDAPUsernames(props.getProperty(Constants.LDAP_NON_LDAP_USERNAMES, null));
@@ -222,6 +225,14 @@ public class LDAPAuthenticatorPlugin
 
     public void setFallbackToLocalAuthentication(boolean fallback) {
         _fallbackToLocalAuthentication = fallback;
+    }
+
+    public void setAutoCreateUsers(boolean autoCreate) {
+        _autoCreateUsers = autoCreate;
+    }
+
+    public boolean getAutoCreateUsers() {
+        return _autoCreateUsers;
     }
 
     public boolean getFallbackToLocalAuthentication() {
@@ -449,13 +460,52 @@ public class LDAPAuthenticatorPlugin
 
                 User user = uc.getUser(null, username);
 
+                if(null != user) {
+                    Calendar lastLogin = user.getLastLogin();
+                    if(logger.isDebugEnabled()) {
+                        logger.debug("User '" + username + "' last login: " + lastLogin);
+                    }
+                    if (lastLogin == null) {
+                        // This is the user's first time logging in
+                        uc.setUserPreference(user.getId(), "firstlogin", "false");
+                        if(logger.isDebugEnabled()) {
+                            logger.debug("User '" + username + "' is logging in for the first time.");
+                        }
+                    }
+                }
+
                 if(null == user) {
+                    if(!getAutoCreateUsers()) {
+                        logger.warn("User '" + username + "' authenticated against LDAP but has no engine account; "
+                                + "not creating it because " + Constants.LDAP_AUTO_CREATE_USERS + "=false");
+
+                        return new LoginStatus(LoginStatus.Status.FAIL, "User has not been added to the engine");
+                    }
+
                     if(logger.isDebugEnabled()) {
                         logger.debug("Must create new local user for '" + username + "'");
                     }
 
+                    System.out.println(" ----- Must create new local user for '" + username + "'");
+
                     ldapUser.setUsername(username); // Use unmapped username
                     uc.updateUser(ldapUser);
+
+                    // Skip the Administrator's First Login dialog for new users
+                    try {
+                        User created = uc.getUser(null, username);
+                        if(null != created) {
+                            uc.setUserPreference(created.getId(), "firstlogin", "false");
+
+                            System.out.println(" ----- firstlogin for user '" + username + "' set to fasle");
+
+                        }
+                    } catch (Exception e) {
+
+                        System.out.println(" ----- Could not set 'firstlogin' preference for '" + username + "'");
+
+                        logger.warn("Could not set 'firstlogin' preference for '" + username + "'", e);
+                    }
                 }
 
                 return new LoginStatus(LoginStatus.Status.SUCCESS, null);
