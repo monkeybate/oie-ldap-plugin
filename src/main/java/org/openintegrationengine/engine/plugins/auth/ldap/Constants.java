@@ -9,6 +9,7 @@ public interface Constants
     public static final String LDAP_RETRIES = "ldap.retries";
     public static final String LDAP_RETRY_INTERVAL = "ldap.retry-interval";
     public static final String LDAP_FALLBACK_TO_LOCAL = "ldap.fallback-to-local-authentication";
+    public static final String LDAP_AUTO_CREATE_USERS = "ldap.auto-create-users";
     public static final String LDAP_CONTEXT_FACTORY_CLASS_NAME = "ldap.context-factory-class-name";
     public static final String LDAP_USERNAME_MAP = "ldap.username-map";
     public static final String LDAP_USERNAME_TEMPLATE = "ldap.username-template";
