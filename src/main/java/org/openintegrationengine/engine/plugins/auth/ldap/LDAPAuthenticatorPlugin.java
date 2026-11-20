@@ -1,9 +1,8 @@
 package org.openintegrationengine.engine.plugins.auth.ldap;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.Collection;
@@ -82,39 +81,21 @@ public class LDAPAuthenticatorPlugin
         return null;
     }
 
-    /**
-     * Loads the settings. Later sources override earlier ones:
-     * <ol>
-     *   <li>the engine's database (the <code>props</code> passed in),</li>
-     *   <li><code>ldap.properties</code> on the plug-in's classpath,</li>
-     *   <li><code>ldap.properties</code> in the engine's configuration
-     *       directory (<code>conf/</code>, next to <code>mirth.properties</code>).</li>
-     * </ol>
-     */
     @Override
     public void init(Properties props) {
-        Properties localProperties = new Properties();
-        if(null != props) {
-            localProperties.putAll(props);
-        }
-
-        try (InputStream in = getClass().getClassLoader().getResourceAsStream(PROPERTIES_FILENAME)) {
-            if(null != in) {
+        Properties localProperties = new Properties(props);
+        // Load the configuration from ldap.properties (the engine's conf/ directory is on the
+        // classpath) and merge it over the database configuration.
+        URL location = getClass().getClassLoader().getResource(PROPERTIES_FILENAME);
+        if(null == location) {
+            logger.info("No " + PROPERTIES_FILENAME + " found; using database configuration with "
+                    + (null == props ? 0 : props.size()) + " items");
+        } else {
+            try (InputStream in = location.openStream()) {
                 localProperties.load(in);
-                logger.info("Loaded LDAP settings from " + PROPERTIES_FILENAME + " on the classpath");
-            }
-        } catch (IOException ioe) {
-            logger.error("Failed to read LDAP settings from " + PROPERTIES_FILENAME + " on the classpath", ioe);
-        }
-
-        // The engine's conf/ directory is not on the plug-in's classpath, so read it directly.
-        File confFile = getConfigurationFile();
-        if(null != confFile && confFile.isFile()) {
-            try (InputStream in = new FileInputStream(confFile)) {
-                localProperties.load(in);
-                logger.info("Loaded LDAP settings from " + confFile);
+                logger.info("Loaded LDAP settings from " + location);
             } catch (IOException ioe) {
-                logger.error("Failed to read LDAP settings from " + confFile, ioe);
+                logger.error("Failed to read LDAP configuration from " + location, ioe);
             }
         }
 
@@ -122,25 +103,8 @@ public class LDAPAuthenticatorPlugin
 
         if(!isConfigured()) {
             logger.error("LDAP authentication is not configured: " + Constants.LDAP_URL + " and "
-                    + Constants.LDAP_GROUP_FILTER + " must both be set (looked for "
-                    + (null == confFile ? PROPERTIES_FILENAME : confFile.toString())
-                    + "). Until then, every user signs in with their local engine password.");
-        }
-    }
-
-    /**
-     * @return <code>ldap.properties</code> in the engine's configuration directory,
-     *         or <code>null</code> if the engine can't say where that is.
-     */
-    private File getConfigurationFile() {
-        try {
-            String confDir = ControllerFactory.getFactory().createConfigurationController().getConfigurationDir();
-
-            return null == confDir ? null : new File(confDir, PROPERTIES_FILENAME);
-        } catch (Exception e) {
-            logger.warn("Could not determine the engine's configuration directory", e);
-
-            return null;
+                    + Constants.LDAP_GROUP_FILTER + " must both be set in " + PROPERTIES_FILENAME
+                    + ". Until then, every user signs in with their local engine password.");
         }
     }
 

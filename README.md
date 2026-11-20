@@ -10,7 +10,7 @@ no acceptable user can be located in the LDAP service.
 
 Configuration is done using a simple Java properties file, `ldap.properties`,
 which you place on your server alongside your `mirth.properties` file (the
-engine's `conf/` directory). A sample file is included in this directory, and it
+engine's `conf/` directory, which is on the classpath). A sample file is included in this directory, and it
 contains comments describing each configuration setting. The plug-in logs the
 file it loaded at start-up; changes take effect when the engine restarts.
 
